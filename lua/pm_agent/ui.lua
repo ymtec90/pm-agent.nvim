@@ -5,11 +5,13 @@ local Layout = require("nui.layout")
 
 local M = {}
 
---- Variáveis de estado
-local current_layout = nil
-local chat_popup = nil
-local prompt_input = nil
+-- Estado do Plugin
+local chat_bufnr = nil       -- O Buffer persistente (Model)
+local current_layout = nil   -- O Layout atual (View)
+local chat_popup = nil       -- Painel de Output (View)
+local prompt_input = nil     -- Caixa de Input (View)
 
+--- Configura opções amigáveis para leitura no buffer
 local function setup_buffer_options(bufnr)
     vim.api.nvim_buf_set_option(bufnr, "filetype", "markdown")
     vim.api.nvim_buf_set_option(bufnr, "wrap", true)
@@ -17,78 +19,68 @@ local function setup_buffer_options(bufnr)
 end
 
 function M.mount_chat_ui(on_submit)
-    if current_layout then
-        current_layout:mount()
+    -- Se a interface já está aberta, foca na janela de input e encerra
+    if current_layout and prompt_input and prompt_input.winid then
+        vim.api.nvim_set_current_win(prompt_input.winid)
+        vim.cmd("startinsert")
         return
     end
 
-    -- 1. Criação da Janela de Chat
+    -- 1. Inicializa o Buffer Persistente (se não existir)
+    -- listed = false (escondido do :ls), scratch = true (não pede pra salvar)
+    if not chat_bufnr or not vim.api.nvim_buf_is_valid(chat_bufnr) then
+        chat_bufnr = vim.api.nvim_create_buf(false, true)
+        setup_buffer_options(chat_bufnr)
+    end
+
+    -- 2. Criação do Painel de Chat (injetando o buffer persistente)
     chat_popup = Popup({
+        bufnr = chat_bufnr, -- Amarra o Model à View
         enter = false,
         focusable = true,
         border = {
             style = "rounded",
-            text = {
-                top = " Tech Lead PM Agent ",
-                top_align = "center",
-            },
-        },
-        buf_options = {
-            modifiable = true,
-            readonly = false,
+            text = { top = " Tech Lead PM Agent ", top_align = "center" },
         },
     })
 
-    -- 2. Criação da Caixa de Entrada (Sem o on_submit nativo)
+    -- 3. Criação da Caixa de Entrada
     prompt_input = Input({
         enter = true,
         border = {
             style = "rounded",
-            text = {
-                top = " Descreva a demanda ou requisito ",
-                top_align = "left",
-            },
+            text = { top = " Descreva a demanda ou requisito ", top_align = "left" },
         },
     }, {
         prompt = " ❯ ",
         default_value = "",
     })
 
-    -- 3. Lógica customizada para enviar o prompt sem desmontar o layout
+    -- 4. Lógica de Submissão Manual
     local function handle_submit()
-        -- Lê a linha digitada
         local lines = vim.api.nvim_buf_get_lines(prompt_input.bufnr, 0, 1, false)
         local value = lines[1] or ""
-
+        
         if value == "" then return end
 
-        -- Limpa a caixa de entrada para a próxima interação
+        -- Limpa a caixa de entrada
         vim.api.nvim_buf_set_lines(prompt_input.bufnr, 0, -1, false, { "" })
+        vim.cmd("startinsert") -- Mantém o usuário em modo de edição
         
-        -- Garante que continuamos no modo de inserção
-        vim.cmd("startinsert")
-
-        -- Dispara a chamada para a API do Ollama
         on_submit(value)
     end
 
-    -- Mapeamento manual da tecla Enter no modo Inserção e Normal
+    -- Keymaps do Input
     prompt_input:map("i", "<CR>", handle_submit, { noremap = true })
     prompt_input:map("n", "<CR>", handle_submit, { noremap = true })
-
-    -- Atalhos para sair do plugin
+    
+    -- Destruição segura da View
     prompt_input:map("n", "<Esc>", function() M.unmount() end, { noremap = true })
     prompt_input:map("i", "<C-c>", function() M.unmount() end, { noremap = true })
 
-    -- 4. Composição do Layout
+    -- 5. Composição e Montagem do Layout
     current_layout = Layout(
-        {
-            position = "50%",
-            size = {
-                width = "85%",
-                height = "85%",
-            },
-        },
+        { position = "50%", size = { width = "85%", height = "85%" } },
         Layout.Box({
             Layout.Box(chat_popup, { size = "80%" }),
             Layout.Box(prompt_input, { size = "20%" }),
@@ -96,35 +88,36 @@ function M.mount_chat_ui(on_submit)
     )
 
     current_layout:mount()
-    setup_buffer_options(chat_popup.bufnr)
 end
 
+--- Desmonta a interface limpidamente sem perder o histórico do buffer
 function M.unmount()
     if current_layout then
         current_layout:unmount()
+        -- Nulifica as referências das Views para forçar recriação na próxima abertura
+        current_layout = nil
+        chat_popup = nil
+        prompt_input = nil
     end
 end
 
+--- Injeta o texto do Ollama diretamente no Buffer Persistente
 function M.append_to_chat(chunk)
-    -- Correção de Segurança: Checagem rigorosa do bufnr para evitar Lua crashes
-    if not chat_popup or not chat_popup.bufnr or not vim.api.nvim_buf_is_valid(chat_popup.bufnr) then
-        return
-    end
+    -- Grava no buffer de forma segura, independentemente da UI estar visível
+    if not chat_bufnr or not vim.api.nvim_buf_is_valid(chat_bufnr) then return end
 
-    local bufnr = chat_popup.bufnr
-    local winid = chat_popup.winid
-
+    local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
     local lines = vim.split(chunk, "\n", { plain = true })
-    local line_count = vim.api.nvim_buf_line_count(bufnr)
     
-    local last_line = vim.api.nvim_buf_get_lines(bufnr, line_count - 1, line_count, false)[1] or ""
+    local last_line = vim.api.nvim_buf_get_lines(chat_bufnr, line_count - 1, line_count, false)[1] or ""
     lines[1] = last_line .. lines[1]
 
-    vim.api.nvim_buf_set_lines(bufnr, line_count - 1, line_count, false, lines)
+    vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 1, line_count, false, lines)
 
-    if winid and vim.api.nvim_win_is_valid(winid) then
-        local new_line_count = vim.api.nvim_buf_line_count(bufnr)
-        vim.api.nvim_win_set_cursor(winid, { new_line_count, 0 })
+    -- Só faz auto-scroll se a interface estiver efetivamente montada na tela
+    if chat_popup and chat_popup.winid and vim.api.nvim_win_is_valid(chat_popup.winid) then
+        local new_line_count = vim.api.nvim_buf_line_count(chat_bufnr)
+        vim.api.nvim_win_set_cursor(chat_popup.winid, { new_line_count, 0 })
     end
 end
 
