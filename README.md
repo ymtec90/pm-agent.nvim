@@ -34,7 +34,7 @@ O plugin foi desenhado para integração perfeita com o lazy.nvim. Adicione o se
 
 ```lua
 {
-    "seu-usuario-github/pm-agent.nvim",
+    "ymtec90/pm-agent.nvim",
     dependencies = {
         "nvim-lua/plenary.nvim",
         "MunifTanjim/nui.nvim",
