@@ -57,4 +57,30 @@ function M.build_context_prompt()
     return context
 end
 
+--- Captura de forma segura a quantidade de linhas e tamanho do arquivo
+---@param filepath string Caminho do arquivo
+---@return number, string Linhas e string formatada do tamanho
+function M.get_file_stats(filepath)
+    local size_bytes = vim.fn.getfsize(filepath)
+    -- Se getfsize retornar -1, o arquivo não existe ou não pôde ser lido
+    if size_bytes < 0 then return 0, "0 B" end
+
+    -- Formatação amigável do tamanho
+    local size_str = size_bytes >= 1024 
+        and string.format("%.1f KB", size_bytes / 1024) 
+        or size_bytes .. " B"
+
+    local lines = 0
+    -- pcall (protected call) evita que o Neovim quebre se tentarmos ler um binário
+    local ok, _ = pcall(function()
+        for _ in io.lines(filepath) do
+            lines = lines + 1
+        end
+    end)
+    
+    if not ok then lines = 0 end
+
+    return lines, size_str
+end
+
 return M
