@@ -2,6 +2,7 @@
 local Popup = require("nui.popup")
 local Input = require("nui.input")
 local Layout = require("nui.layout")
+local basket = require("pm_agent.basket")
 
 local M = {}
 
@@ -173,6 +174,68 @@ function M.mount_basket_manager(basket_files, on_confirm)
     popup:map("n", "q", function()
         popup:unmount()
     end, { noremap = true })
+end
+
+--- Monta a interface interativa da cesta com métricas de arquivos
+---@param basket_files table Lista de caminhos absolutos
+---@param on_confirm function(table) Callback disparado ao confirmar
+function M.mount_basket_manager(basket_files, on_confirm)
+    local popup = Popup({
+        enter = true,
+        focusable = true,
+        position = "50%",
+        size = { width = "65%", height = "40%" },
+        border = {
+            style = "rounded",
+            text = {
+                top = " 🗂️ Cesta de Contexto da Arquitetura ",
+                top_align = "center",
+                bottom = " [dd] Remover | [Enter] Analisar Projeto | [Esc] Sair ",
+                bottom_align = "center"
+            },
+        },
+        buf_options = { modifiable = true, readonly = false },
+        win_options = { winhighlight = "Normal:Normal,FloatBorder:FloatBorder" },
+    })
+
+    popup:mount()
+
+    -- 1. Prepara as linhas formatadas com metadados para exibição
+    local display_lines = {}
+    for _, filepath in ipairs(basket_files) do
+        local lines_count, size_str = basket.get_file_stats(filepath)
+        -- Transforma o caminho absoluto em relativo (ex: src/database.py)
+        local relative_path = vim.fn.fnamemodify(filepath, ":.") 
+        
+        local formatted_line = string.format("%s │ %d linhas │ %s", relative_path, lines_count, size_str)
+        table.insert(display_lines, formatted_line)
+    end
+
+    vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, display_lines)
+
+    -- 2. Parsing Reverso na Submissão
+    popup:map("n", "<CR>", function()
+        local final_lines = vim.api.nvim_buf_get_lines(popup.bufnr, 0, -1, false)
+        local cleaned_files = {}
+        
+        for _, line in ipairs(final_lines) do
+            if line ~= "" then
+                -- Divide a string renderizada usando o separador visual
+                local parts = vim.split(line, " │ ", { plain = true })
+                local relative_path = vim.trim(parts[1])
+                
+                -- Reconverte para caminho absoluto para segurança na leitura
+                local absolute_path = vim.fn.fnamemodify(relative_path, ":p")
+                table.insert(cleaned_files, absolute_path)
+            end
+        end
+
+        popup:unmount()
+        on_confirm(cleaned_files)
+    end, { noremap = true })
+
+    popup:map("n", "<Esc>", function() popup:unmount() end, { noremap = true })
+    popup:map("n", "q", function() popup:unmount() end, { noremap = true })
 end
 
 return M
