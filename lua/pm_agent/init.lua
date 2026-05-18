@@ -13,6 +13,58 @@ function M.setup(user_opts)
     vim.api.nvim_create_user_command("PMAgent", function()
         M.open_agent()
     end, {})
+
+    -- Adiciona o arquivo em foco à cesta
+    vim.api.nvim_create_user_command("PMAdd", function()
+        basket.add_current_buffer()
+    end, {})
+
+    -- Abre o gerenciador da cesta
+    vim.api.nvim_create_user_command("PMBasket", function()
+        M.manage_basket()
+    end, {})
+end
+
+--- Fluxo de revisão baseado na Cesta de Contexto
+function M.manage_basket()
+    local current_files = basket.get_all()
+    
+    if #current_files == 0 then
+        print("[PM Agent] A cesta está vazia! Use :PMAdd em um arquivo primeiro.")
+        return
+    end
+
+    -- Abre a UI da cesta
+    ui.mount_basket_manager(current_files, function(updated_files)
+        -- Atualiza o Model com o que restou na View (caso o usuário tenha apagado linhas)
+        basket.set_files(updated_files)
+        
+        local context_prompt = basket.build_context_prompt()
+
+        -- Chama a UI principal de chat
+        ui.mount_chat_ui(function(user_prompt)
+            local full_prompt = context_prompt .. "\n\nMeu requisito/dúvida sobre a arquitetura:\n" .. user_prompt
+            
+            ui.append_to_chat("## 🗂️ Revisão de Múltiplos Arquivos\n**Sua demanda:** " .. user_prompt .. "\n\n")
+            ui.append_to_chat("---\n*Analisando integrações e gerando plano de ação...*\n\n")
+            
+            local messages = {
+                { role = "system", content = config.options.system_prompt },
+                { role = "user", content = full_prompt }
+            }
+            
+            backend.chat_stream(
+                messages,
+                { url = config.options.ollama_url, model = config.options.model },
+                function(chunk) ui.append_to_chat(chunk) end,
+                function() ui.append_separator() end,
+                function(err_msg)
+                    ui.append_to_chat("\n\n**[ERRO]** " .. err_msg .. "\n")
+                    ui.append_separator()
+                end
+            )
+        end)
+    end)
 end
 
 --- Orquestra a abertura da UI e o fluxo de dados para o Ollama
