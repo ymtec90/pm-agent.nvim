@@ -54,4 +54,103 @@ function M.open_agent()
     end)
 end
 
+--- Captura o buffer atual e abre o PM Agent com o código injetado como contexto
+function M.review_current_buffer()
+    -- 1. Coleta metadados e o texto do buffer ativo (seu arquivo Python)
+    local bufnr = vim.api.nvim_get_current_buf()
+    local filetype = vim.api.nvim_buf_get_option(bufnr, "filetype")
+    local filename = vim.fn.expand("%:t")
+    
+    -- Se for um buffer vazio ou sem nome, avisa o usuário
+    if filename == "" then
+        print("Erro: Salve o arquivo primeiro ou abra um arquivo válido para revisão.")
+        return
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local code_content = table.concat(lines, "\n")
+
+    -- 2. Formata o contexto em Markdown para o Tech Lead entender facilmente
+    local context_prompt = string.format(
+        "Estou trabalhando no arquivo `%s`.\nAqui está o código atual:\n```%s\n%s\n
+```\n\n",
+        filename, filetype, code_content
+    )
+
+    -- 3. Abre a UI reutilizando a mesma lógica, mas com o contexto anexado
+    ui.mount_chat_ui(function(user_prompt)
+        
+        -- Combina o código do arquivo com o requisito que você digitou
+        local full_prompt = context_prompt .. "Meu requisito/dúvida: " .. user_prompt
+        
+        -- Feedback visual focado (não mostramos o código inteiro na UI para não poluir)
+        ui.append_to_chat("## 🧑‍💻 Revisando: `" .. filename .. "`\n**Sua demanda:** " .. user_prompt .. "\n\n")
+        ui.append_to_chat("---\n*Lendo o arquivo e gerando plano de ação arquitetural...*\n\n")
+        
+        local messages = {
+            { role = "system", content = config.options.system_prompt },
+            { role = "user", content = full_prompt }
+        }
+        
+        -- Chamada de rede inalterada
+        backend.chat_stream(
+            messages,
+            { url = config.options.ollama_url, model = config.options.model },
+            function(chunk) ui.append_to_chat(chunk) end,
+            function() ui.append_separator() end,
+            function(err_msg)
+                ui.append_to_chat("\n\n**[ERRO]** " .. err_msg .. "\n")
+                ui.append_separator()
+            end
+        )
+    end)
+end
+
+-- Registre o novo comando no setup()
+-- Coloque isso dentro da sua function M.setup(user_opts)
+vim.api.nvim_create_user_command("PMReview", function()
+    M.review_current_buffer()
+end, {})
+
+local workspace = require("pm_agent.workspace")
+
+-- Adicione a função abaixo de M.open_agent e M.review_current_buffer
+function M.review_entire_project()
+    -- 1. Feedback rápido para o usuário enquanto o plugin lê a pasta
+    print("Escaneando a pasta do projeto... Aguarde.")
+    
+    -- 2. Constrói o contexto maciço com a árvore e os arquivos
+    local project_context = workspace.build_project_context()
+
+    -- 3. Abre a UI com o contexto anexado
+    ui.mount_chat_ui(function(user_prompt)
+        local full_prompt = project_context .. "Meu requisito/dúvida sobre o projeto: " .. user_prompt
+        
+        -- Confirmação visual na UI
+        ui.append_to_chat("## 🗂️ Revisão de Arquitetura do Projeto\n**Sua demanda:** " .. user_prompt .. "\n\n")
+        ui.append_to_chat("---\n*Analisando a estrutura do projeto e interações entre arquivos...*\n\n")
+        
+        local messages = {
+            { role = "system", content = config.options.system_prompt },
+            { role = "user", content = full_prompt }
+        }
+        
+        backend.chat_stream(
+            messages,
+            { url = config.options.ollama_url, model = config.options.model },
+            function(chunk) ui.append_to_chat(chunk) end,
+            function() ui.append_separator() end,
+            function(err_msg)
+                ui.append_to_chat("\n\n**[ERRO]** Falha ao processar o projeto: " .. err_msg .. "\n")
+                ui.append_separator()
+            end
+        )
+    end)
+end
+
+-- Dentro da sua function M.setup(user_opts), registre o novo comando:
+vim.api.nvim_create_user_command("PMProject", function()
+    M.review_entire_project()
+end, {})
+
 return M
