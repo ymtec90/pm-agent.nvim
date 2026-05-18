@@ -125,4 +125,54 @@ function M.append_separator()
     M.append_to_chat("\n\n---\n\n")
 end
 
+--- Monta a interface de gerenciamento da cesta de contexto
+---@param basket_files table Lista de arquivos atualmente na cesta
+---@param on_confirm function(table) Callback disparado ao confirmar a cesta (Enter)
+function M.mount_basket_manager(basket_files, on_confirm)
+    local popup = Popup({
+        enter = true,
+        focusable = true,
+        position = "50%",
+        size = { width = "60%", height = "40%" },
+        border = {
+            style = "rounded",
+            text = {
+                top = " 🗂️ Cesta de Contexto ",
+                top_align = "center",
+                bottom = " [dd] Remover | [Enter] Confirmar e Revisar | [Esc] Sair ",
+                bottom_align = "center"
+            },
+        },
+        buf_options = { modifiable = true, readonly = false },
+        win_options = { winhighlight = "Normal:Normal,FloatBorder:FloatBorder" },
+    })
+
+    popup:mount()
+
+    -- Alimenta o buffer com os arquivos atuais
+    vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, basket_files)
+
+    -- Mapeamento: Confirma a cesta e prossegue para a análise
+    popup:map("n", "<CR>", function()
+        -- Lê o que restou no buffer
+        local final_files = vim.api.nvim_buf_get_lines(popup.bufnr, 0, -1, false)
+        local cleaned_files = {}
+        for _, f in ipairs(final_files) do
+            if f ~= "" then table.insert(cleaned_files, f) end
+        end
+
+        popup:unmount()
+        on_confirm(cleaned_files)
+    end, { noremap = true })
+
+    -- Mapeamento: Sair sem fazer nada
+    popup:map("n", "<Esc>", function()
+        popup:unmount()
+    end, { noremap = true })
+    
+    popup:map("n", "q", function()
+        popup:unmount()
+    end, { noremap = true })
+end
+
 return M
