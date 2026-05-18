@@ -45,12 +45,12 @@ function M.open_agent()
     ui.mount_chat_ui(function(prompt)
         ui.append_to_chat("## 🧑‍💻 Requisito\n" .. prompt .. "\n\n")
         ui.append_to_chat("---\n*Analisando e gerando plano de ação...*\n\n")
-
+        
         local messages = {
             { role = "system", content = config.options.system_prompt },
             { role = "user", content = prompt }
         }
-
+        
         M._dispatch_to_backend(messages)
     end)
 end
@@ -60,7 +60,7 @@ function M.review_current_buffer()
     local bufnr = vim.api.nvim_get_current_buf()
     local filename = vim.fn.expand("%:t")
     local filetype = vim.api.nvim_buf_get_option(bufnr, "filetype")
-
+    
     if filename == "" then
         print("[PM Agent] Erro: Salve o arquivo primeiro para poder revisá-lo.")
         return
@@ -74,36 +74,27 @@ function M.review_current_buffer()
 Estou trabalhando no arquivo `%s`.
 Aqui está o código atual:
 ```%s
-%s
-
+%s```
 ]], filename, filetype, code_content)
-
-
 
 ui.mount_chat_ui(function(user_prompt)
     local full_prompt = context_prompt .. "\n\nMeu requisito/dúvida: " .. user_prompt
-
+    
     ui.append_to_chat("## 🧑‍💻 Revisando: `" .. filename .. "`\n**Sua demanda:** " .. user_prompt .. "\n\n")
     ui.append_to_chat("---\n*Lendo o arquivo e arquitetando melhorias...*\n\n")
-
+    
     local messages = {
         { role = "system", content = config.options.system_prompt },
         { role = "user", content = full_prompt }
     }
-
+    
     M._dispatch_to_backend(messages)
 end)
-
-
 end
 
 --- Fluxo 3: Gerenciamento e Análise da Cesta de Contexto
-
 function M.manage_basket()
-
 local current_files = basket.get_all()
-
-
 
 if #current_files == 0 then
     print("[PM Agent] A cesta está vazia! Use :PMAdd em seus arquivos primeiro.")
@@ -116,89 +107,60 @@ ui.mount_basket_manager(current_files, function(updated_files)
 
     ui.mount_chat_ui(function(user_prompt)
         local full_prompt = context_prompt .. "\n\nMeu requisito sobre estes arquivos:\n" .. user_prompt
-
+        
         ui.append_to_chat("## 🗂️ Revisão da Cesta de Contexto\n**Sua demanda:** " .. user_prompt .. "\n\n")
         ui.append_to_chat("---\n*Avaliando a integração arquitetural...*\n\n")
-
+        
         local messages = {
             { role = "system", content = config.options.system_prompt },
             { role = "user", content = full_prompt }
         }
-
+        
         M._dispatch_to_backend(messages)
     end)
 end)
-
-
 end
 
 --- Fluxo 4: Revisão do Projeto Inteiro (Workspace Scan)
-
 function M.review_entire_project()
-
 print("[PM Agent] Escaneando a pasta do projeto... Aguarde.")
-
 local project_context = workspace.build_project_context()
-
-
 
 ui.mount_chat_ui(function(user_prompt)
     local full_prompt = project_context .. "Meu requisito sobre o projeto: " .. user_prompt
-
+    
     ui.append_to_chat("## 🗂️ Revisão Global do Projeto\n**Sua demanda:** " .. user_prompt .. "\n\n")
     ui.append_to_chat("---\n*Mapeando a árvore de arquivos e dependências...*\n\n")
-
+    
     local messages = {
         { role = "system", content = config.options.system_prompt },
         { role = "user", content = full_prompt }
     }
-
+    
     M._dispatch_to_backend(messages)
 end)
-
-
 end
 
 --- Wrapper interno para executar a chamada de rede mantendo o código DRY (Don't Repeat Yourself)
-
 ---@param messages table Array de mensagens do chat estruturadas para a API do Ollama
-
 function M._dispatch_to_backend(messages)
-
 backend.chat_stream(
-
 messages,
-
 { url = config.options.ollama_url, model = config.options.model },
-
 function(chunk)
-
 -- Callback disparado a cada token recebido do stream
-
 ui.append_to_chat(chunk)
-
 end,
-
 function()
-
 -- Callback disparado ao concluir a resposta
-
 ui.append_separator()
-
 end,
-
 function(err_msg)
-
 -- Callback disparado em caso de falha de conexão (ex: Ollama offline)
-
 ui.append_to_chat("\n\n[ERRO DE REDE] " .. err_msg .. "\n")
-
 ui.append_separator()
-
 end
-
 )
-
 end
 
 return M
