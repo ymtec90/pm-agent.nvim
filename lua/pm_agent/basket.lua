@@ -3,7 +3,7 @@ local path = require("plenary.path")
 
 local M = {}
 
--- Estado interno da cesta (lista de caminhos relativos ou absolutos)
+-- Estado interno da cesta (lista de caminhos absolutos)
 M.files = {}
 
 --- Adiciona o arquivo atual à cesta (evita duplicatas)
@@ -31,35 +31,14 @@ function M.set_files(new_files)
     M.files = new_files
 end
 
---- Retorna a lista atual
+--- Retorna a lista atual de arquivos
 function M.get_all()
     return M.files
 end
 
---- Lê os arquivos da cesta e constrói o pacote de contexto em Markdown
-function M.build_context_prompt()
-    if #M.files == 0 then return "" end
-
-    local context = "## Contexto do Projeto (Arquivos Selecionados):\n\n"
-    
-    for _, filepath in ipairs(M.files) do
-        local p = path:new(filepath)
-        if p:exists() and p:is_file() then
-            local filename = vim.fn.fnamemodify(filepath, ":t")
-            local ext = vim.fn.fnamemodify(filepath, ":e")
-            local content = p:read()
-            
-            context = context .. string.format("### Arquivo: `%s`\n```%s\n%s\n
-```\n\n", filename, ext, content)
-        end
-    end
-
-    return context
-end
-
 --- Captura de forma segura a quantidade de linhas e tamanho do arquivo
 ---@param filepath string Caminho do arquivo
----@return number, string Linhas e string formatada do tamanho
+---@return number, string Linhas e string formatada do tamanho (ex: "4.2 KB")
 function M.get_file_stats(filepath)
     local size_bytes = vim.fn.getfsize(filepath)
     -- Se getfsize retornar -1, o arquivo não existe ou não pôde ser lido
@@ -81,6 +60,32 @@ function M.get_file_stats(filepath)
     if not ok then lines = 0 end
 
     return lines, size_str
+end
+
+--- Lê os arquivos da cesta e constrói o pacote de contexto em Markdown
+function M.build_context_prompt()
+    if #M.files == 0 then return "" end
+
+    local context = "## Contexto do Projeto (Arquivos Selecionados):\n\n"
+    
+    for _, filepath in ipairs(M.files) do
+        local p = path:new(filepath)
+        if p:exists() and p:is_file() then
+            local filename = vim.fn.fnamemodify(filepath, ":t")
+            local ext = vim.fn.fnamemodify(filepath, ":e")
+            local content = p:read()
+            
+            -- Correção crucial: uso de [[ ]] para strings multilinhas seguras
+            local file_block = string.format([[
+                ### Arquivo: `%s`
+                ```%s
+                %s```
+            ]], filename, ext, content)
+            context = context .. file_block
+    end
+end
+
+return context
 end
 
 return M
