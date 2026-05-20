@@ -14,6 +14,8 @@ Em vez de atuar como um mero gerador de código, este assistente possui uma *Per
 *   **⚡ Streaming Assíncrono:** Utiliza `plenary.curl` em *background* para garantir que o Neovim continue fluido e responsivo enquanto o modelo gera as respostas.
 *   **🎨 UI Moderna:** Construído sobre o `nui.nvim`, oferecendo janelas flutuantes com bordas customizadas, divisão de painéis (split layouts) e auto-scroll inteligente.
 *   **🗂️ Cesta de Contexto (Context Basket):** Selecione arquivos específicos do seu projeto (ex: as rotas da API e os modelos do Banco de Dados) e envie-os em lote para o agente analisar como eles se integram.
+* **🧠 Memória de Projeto Persistente:** O agente lembra das suas decisões de arquitetura. O histórico da conversa é salvo automaticamente no arquivo `.pm-agent-history.json` e possui auto-compressão para não estourar a janela de tokens.
+* **🔎 Busca Semântica (RAG Local):** O comando `:PMProject` agora vetoriza seus arquivos localmente usando similaridade de cossenos. Faça perguntas sobre a arquitetura inteira do repositório, e o Neovim injetará apenas os blocos de código matematicamente relevantes para o Ollama analisar.
 
 ## 📦 Dependências
 
@@ -22,8 +24,8 @@ Antes de instalar, certifique-se de ter as seguintes ferramentas configuradas:
 1.  **Neovim** >= `0.9.0`
 2.  **Ollama** rodando localmente na sua máquina.
 3.  Modelos recomendados (baixe usando `ollama run <modelo>`):
-    *   `qwen2.5-coder:3b`
-    *   `codegemma`
+    *   `qwen2.5-coder:3b` (Para o raciocínio/chat)
+    *   `codegemma` (Obrigatório para Busca Semântica/RAG)
 
 ## 🚀 Instalação
 

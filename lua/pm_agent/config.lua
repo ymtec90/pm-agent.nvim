@@ -1,12 +1,11 @@
+-- lua/pm_agent/config.lua
 local M = {}
 
 M.defaults = {
-	-- Endereço padrão do Ollama
 	ollama_url = "http://localhost:11434/api/chat",
-	-- Modelos recomendados para tarefas locais rápidas e lógicas
-	model = "qwen2.5-coder:3b", -- ou "codegemma"
+	model = "qwen2.5-coder:3b",
+	embed_model = "nomic-embed-text", -- NOVO: Modelo dedicado para RAG/Busca Semântica
 
-	-- Configuração do comportamento do Agente
 	system_prompt = [[
 Você é um Tech Lead e Engenheiro de Software Sênior.
 Sua saída deve ser estritamente em formato Markdown (.md).
