@@ -1,4 +1,3 @@
-local curl = require("plenary.curl")
 local config = require("pm_agent.config")
 
 local M = {}
@@ -20,29 +19,46 @@ local function cosine_similarity(vec_a, vec_b)
 	return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
 end
 
--- 2. Cliente Otimizado do Ollama para Embeddings em Lote (Batch)
+-- 2. Cliente Otimizado do Ollama (À prova de quebras no Terminal)
 function M.get_embeddings_batch(texts_array, model_name)
 	local embed_model = model_name or config.options.embed_model or "nomic-embed-text"
-
-	-- Utiliza o endpoint /api/embed (mais novo) que suporta arrays nativamente
 	local embed_url = config.options.ollama_url:gsub("/api/chat$", "/api/embed")
 
-	local res = curl.post(embed_url, {
-		body = vim.fn.json_encode({
-			model = embed_model,
-			input = texts_array, -- Envia todos os blocos de uma vez
-		}),
-		headers = { ["Content-Type"] = "application/json" },
+	local json_body = vim.fn.json_encode({
+		model = embed_model,
+		input = texts_array,
 	})
 
-	if res.status == 200 then
-		local data = vim.fn.json_decode(res.body)
-		-- O endpoint /api/embed retorna um array chamado "embeddings"
-		return data.embeddings
-	else
-		print("[PM Agent] Erro ao gerar embedding em lote (Status " .. res.status .. ").")
-		return nil
+	-- CRIANDO O ARQUIVO TEMPORÁRIO: Isso evita que o JSON gigante estoure a linha de comando do SO
+	local tmpfile = vim.fn.tempname()
+	vim.fn.writefile({ json_body }, tmpfile)
+
+	-- Chama o curl nativo e pede para ele ler o arquivo temporário (-d @arquivo)
+	local curl_cmd = {
+		"curl",
+		"-s",
+		embed_url,
+		"-H",
+		"Content-Type: application/json",
+		"-d",
+		"@" .. tmpfile,
+	}
+
+	-- Executa a requisição sincronamente
+	local response = vim.fn.system(curl_cmd)
+
+	-- Deleta o arquivo temporário após o uso para não acumular lixo no PC
+	vim.fn.delete(tmpfile)
+
+	if vim.v.shell_error == 0 then
+		local ok, data = pcall(vim.fn.json_decode, response)
+		if ok and data.embeddings then
+			return data.embeddings
+		end
 	end
+
+	print("[PM Agent] Erro ao gerar embedding em lote.")
+	return nil
 end
 
 -- 3. Fatiamento por linhas
@@ -78,7 +94,6 @@ function M.index_files(files_list)
 	local all_chunks = {}
 	local chunk_metadata = {}
 
-	-- Passo A: Coleta e fatia todos os arquivos sem chamar a rede
 	for _, filepath in ipairs(files_list) do
 		local chunks = M.chunk_file(filepath)
 		for i, chunk_text in ipairs(chunks) do
@@ -93,7 +108,6 @@ function M.index_files(files_list)
 
 	print(string.format("[PM Agent] Vetorizando %d blocos em lote. Aguarde...", #all_chunks))
 
-	-- Passo B: Envia os pedaços para o Ollama em pacotes de 25 para não estourar a RAM
 	local batch_size = 25
 	for i = 1, #all_chunks, batch_size do
 		local batch_texts = {}
@@ -121,7 +135,6 @@ end
 -- 5. Busca Semântica
 function M.search(query, top_k)
 	top_k = top_k or 3
-	-- Usa a mesma função batch, mas passa um array de 1 item para a pergunta
 	local query_vectors = M.get_embeddings_batch({ query })
 	if not query_vectors or not query_vectors[1] then
 		return ""
