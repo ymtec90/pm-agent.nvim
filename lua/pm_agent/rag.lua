@@ -1,11 +1,8 @@
--- lua/pm_agent/rag.lua
 local curl = require("plenary.curl")
 local config = require("pm_agent.config")
 
 local M = {}
 
--- Banco de dados vetorial em memória para a sessão atual
--- Formato: { { filepath = "...", chunk = "...", vector = {...} } }
 M.vector_db = {}
 
 -- 1. Matemática Vetorial: Similaridade de Cossenos
@@ -23,32 +20,32 @@ local function cosine_similarity(vec_a, vec_b)
 	return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
 end
 
--- 2. Cliente do Ollama para Embeddings
--- Recomendo fortemente baixar o modelo `nomic-embed-text` ou `mxbai-embed-large` no seu Ollama local
-function M.get_embedding(text, model_name)
-	local embed_model = model_name or "nomic-embed-text"
-	-- Transforma a URL de chat padrão na URL de embeddings
-	local embed_url = config.options.ollama_url:gsub("/chat$", "/embeddings")
+-- 2. Cliente Otimizado do Ollama para Embeddings em Lote (Batch)
+function M.get_embeddings_batch(texts_array, model_name)
+	local embed_model = model_name or config.options.embed_model or "nomic-embed-text"
+
+	-- Utiliza o endpoint /api/embed (mais novo) que suporta arrays nativamente
+	local embed_url = config.options.ollama_url:gsub("/api/chat$", "/api/embed")
 
 	local res = curl.post(embed_url, {
 		body = vim.fn.json_encode({
 			model = embed_model,
-			prompt = text,
+			input = texts_array, -- Envia todos os blocos de uma vez
 		}),
 		headers = { ["Content-Type"] = "application/json" },
 	})
 
 	if res.status == 200 then
 		local data = vim.fn.json_decode(res.body)
-		return data.embedding
+		-- O endpoint /api/embed retorna um array chamado "embeddings"
+		return data.embeddings
 	else
-		print("[PM Agent] Erro ao gerar embedding. Verifique se o modelo " .. embed_model .. " está instalado.")
+		print("[PM Agent] Erro ao gerar embedding em lote (Status " .. res.status .. ").")
 		return nil
 	end
 end
 
--- 3. Função Simples de Chunking (Fatiamento por linhas)
--- Lê um arquivo e devolve pedaços de ~50 linhas
+-- 3. Fatiamento por linhas
 function M.chunk_file(filepath, chunk_size)
 	chunk_size = chunk_size or 50
 	local chunks = {}
@@ -68,7 +65,6 @@ function M.chunk_file(filepath, chunk_size)
 		end
 	end)
 
-	-- Pega o que sobrou no final do arquivo
 	if #current_chunk > 0 then
 		table.insert(chunks, table.concat(current_chunk, "\n"))
 	end
@@ -76,50 +72,73 @@ function M.chunk_file(filepath, chunk_size)
 	return chunks
 end
 
--- 4. Motor de Indexação (Alimenta o vector_db)
+-- 4. Motor de Indexação em Lote
 function M.index_files(files_list)
-	print("[PM Agent] Indexando " .. #files_list .. " arquivos para busca semântica...")
-	M.vector_db = {} -- Limpa o banco atual
+	M.vector_db = {}
+	local all_chunks = {}
+	local chunk_metadata = {}
 
+	-- Passo A: Coleta e fatia todos os arquivos sem chamar a rede
 	for _, filepath in ipairs(files_list) do
 		local chunks = M.chunk_file(filepath)
 		for i, chunk_text in ipairs(chunks) do
-			-- Gera o vetor para cada pedaço de código
-			local vector = M.get_embedding(chunk_text)
-			if vector then
-				table.insert(M.vector_db, {
-					filepath = filepath,
-					chunk_index = i,
-					content = chunk_text,
-					vector = vector,
-				})
+			table.insert(all_chunks, chunk_text)
+			table.insert(chunk_metadata, {
+				filepath = filepath,
+				chunk_index = i,
+				content = chunk_text,
+			})
+		end
+	end
+
+	print(string.format("[PM Agent] Vetorizando %d blocos em lote. Aguarde...", #all_chunks))
+
+	-- Passo B: Envia os pedaços para o Ollama em pacotes de 25 para não estourar a RAM
+	local batch_size = 25
+	for i = 1, #all_chunks, batch_size do
+		local batch_texts = {}
+		local batch_meta = {}
+
+		for j = i, math.min(i + batch_size - 1, #all_chunks) do
+			table.insert(batch_texts, all_chunks[j])
+			table.insert(batch_meta, chunk_metadata[j])
+		end
+
+		local vectors = M.get_embeddings_batch(batch_texts)
+
+		if vectors then
+			for k, vector in ipairs(vectors) do
+				local meta = batch_meta[k]
+				meta.vector = vector
+				table.insert(M.vector_db, meta)
 			end
 		end
 	end
-	print("[PM Agent] Indexação concluída! " .. #M.vector_db .. " blocos vetorizados.")
+
+	print("[PM Agent] Indexação concluída! " .. #M.vector_db .. " blocos prontos.")
 end
 
--- 5. Busca Semântica Retornando Contexto
+-- 5. Busca Semântica
 function M.search(query, top_k)
 	top_k = top_k or 3
-	local query_vector = M.get_embedding(query)
-	if not query_vector then
+	-- Usa a mesma função batch, mas passa um array de 1 item para a pergunta
+	local query_vectors = M.get_embeddings_batch({ query })
+	if not query_vectors or not query_vectors[1] then
 		return ""
 	end
 
+	local query_vector = query_vectors[1]
 	local results = {}
-	-- Compara o vetor da pergunta com todo o banco
+
 	for _, item in ipairs(M.vector_db) do
 		local score = cosine_similarity(query_vector, item.vector)
 		table.insert(results, { score = score, item = item })
 	end
 
-	-- Ordena do maior (mais similar) para o menor
 	table.sort(results, function(a, b)
 		return a.score > b.score
 	end)
 
-	-- Constrói a string de contexto com os top_k resultados
 	local context_str = "## Fragmentos Relevantes da Arquitetura:\n\n"
 	for i = 1, math.min(top_k, #results) do
 		local result = results[i]
