@@ -3,6 +3,7 @@ local Popup = require("nui.popup")
 local Input = require("nui.input")
 local Layout = require("nui.layout")
 local basket = require("pm_agent.basket")
+local Menu = require("nui.menu")
 
 local M = {}
 
@@ -250,6 +251,48 @@ function M.mount_basket_manager(basket_files, on_confirm)
 	popup:map("n", "q", function()
 		popup:unmount()
 	end, { noremap = true })
+end
+
+--- Monta um menu interativo para selecionar o tipo de atividade (Role/Task)
+---@param on_submit function(string, string) Callback disparado ao selecionar uma opção (retorna o ID e o título)
+function M.mount_action_menu(on_submit)
+	local menu = Menu({
+		position = "50%",
+		size = {
+			width = 60,
+			height = 7,
+		},
+		border = {
+			style = "rounded",
+			text = {
+				top = " 🎯 Selecione a Atividade do PM/Tech Lead ",
+				top_align = "center",
+			},
+		},
+		win_options = {
+			winhighlight = "Normal:Normal,FloatBorder:FloatBorder",
+		},
+	}, {
+		lines = {
+			Menu.item("1. 🔎 Revisão de Código e Clean Code", { id = "code_review" }),
+			Menu.item("2. 🏗️  Planejamento Arquitetural", { id = "architecture" }),
+			Menu.item("3. 📋 Quebra de Tarefas (PM)", { id = "task_breakdown" }),
+			Menu.item("4. 🧪 Esqueleto de Testes (TDD)", { id = "tdd_planning" }),
+			Menu.item("5. 🧹 Análise de Débito Técnico", { id = "tech_debt" }),
+		},
+		max_width = 60,
+		keymap = {
+			focus_next = { "j", "<Down>", "<Tab>" },
+			focus_prev = { "k", "<Up>", "<S-Tab>" },
+			close = { "<Esc>", "<C-c>", "q" },
+			submit = { "<CR>", "<Space>" },
+		},
+		on_submit = function(item)
+			on_submit(item.id, item.text)
+		end,
+	})
+
+	menu:mount()
 end
 
 return M
