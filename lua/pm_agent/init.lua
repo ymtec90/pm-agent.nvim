@@ -104,11 +104,10 @@ function M.setup(user_opts)
 		M.review_entire_project()
 	end, {})
 
-  -- Comando 6: Menu interativo de ações especializadas
-  vim.api.nvim_create_user_command("PMAction", function())
-    M.select_specialized_action()
-  end, {})
-
+	-- Comando 6: Menu interativo de ações especializadas
+	vim.api.nvim_create_user_command("PMAction", function()
+		M.select_specialized_action()
+	end, {})
 end
 
 -- ==========================================
@@ -261,6 +260,46 @@ Com base EXCLUSIVAMENTE nos fragmentos de código acima, responda ao seguinte re
 end
 
 -- ==========================================
+-- 🎯 MENU DE ATIVIDADES ESPECIALIZADAS
+-- ==========================================
+
+--- Fluxo 5: Menu interativo para funções específicas de Tech Lead/PM
+function M.select_specialized_action()
+	is_rag_active = false
+
+	-- 1. Abre a interface do Menu
+	ui.mount_action_menu(function(action_id, action_title)
+		-- 2. Dicionário de prompts especializados para cada atividade
+		local action_prompts = {
+			code_review = "Atue como um Revisor de Código Sênior. Foque em apontar violações de Clean Code, sugerir otimizações de performance e identificar potenciais bugs. Responda em Markdown.",
+			architecture = "Atue como um Arquiteto de Software Sênior. Crie um design de software estruturado, sugerindo padrões de projeto (Design Patterns), separação de responsabilidades e fluxo de dados.",
+			task_breakdown = "Atue como um Technical Project Manager (PM). Quebre o requisito fornecido em histórias de usuário (User Stories) detalhadas, critérios de aceite e proponha uma ordem de execução.",
+			tdd_planning = "Atue como um Engenheiro de Qualidade (QA/TDD). Esboce os cenários de testes e o esqueleto de uma suíte de testes (ex: pytest) para garantir a cobertura do requisito solicitado.",
+			tech_debt = "Atue como um Tech Lead focado em refatoração. Analise o contexto, identifique débitos técnicos e crie um plano de ação seguro para refatorar o código sem quebrar a lógica de negócios.",
+		}
+
+		local system_instruction = action_prompts[action_id]
+
+		-- 3. Abre a caixa de input para o usuário fornecer o contexto específico
+		ui.mount_chat_ui(function(user_prompt)
+			-- Combinamos a instrução especializada com a demanda do usuário
+			local full_prompt = string.format(
+				"INSTRUÇÃO DE PERSONA: %s\n\nREQUISITO DO USUÁRIO:\n%s",
+				system_instruction,
+				user_prompt
+			)
+
+			ui.append_to_chat("## " .. action_title .. "\n**Sua demanda:** " .. user_prompt .. "\n\n")
+			ui.append_to_chat("---\n*Iniciando análise especializada...*\n\n")
+
+			-- Utiliza o sistema de histórico e backend já consolidados no projeto
+			append_to_history("user", full_prompt)
+			M._dispatch_to_backend()
+		end)
+	end)
+end
+
+-- ==========================================
 -- 🔌 DESPACHANTE E COMUNICAÇÃO ASSÍNCRONA
 -- ==========================================
 
@@ -294,46 +333,6 @@ function M._dispatch_to_backend()
 	end, function(err_msg)
 		ui.append_to_chat("\n\n[ERRO DE REDE] " .. err_msg .. "\n")
 		ui.append_separator()
-	end)
-end
-
--- ==========================================
--- 🎯 MENU DE ATIVIDADES ESPECIALIZADAS
--- ==========================================
-
---- Fluxo 5: Menu interativo para funções específicas de Tech Lead/PM
-function M.select_specialized_action()
-	is_rag_active = false
-
-	-- 1. Abre a interface do Menu
-	ui.mount_action_menu(function(action_id, action_title)
-		-- 2. Dicionário de prompts especializados para cada atividade
-		local action_prompts = {
-			code_review = "Atue como um Revisor de Código Sênior. Foque em apontar violações de Clean Code, sugerir otimizações de performance e identificar potenciais bugs. Responda em Markdown.",
-			architecture = "Atue como um Arquiteto de Software Sênior. Crie um design de software estruturado, sugerindo padrões de projeto (Design Patterns), separação de responsabilidades e fluxo de dados.",
-			task_breakdown = "Atue como um Technical Project Manager (PM). Quebre o requisito fornecido em histórias de usuário (User Stories) detalhadas, critérios de aceite e proponha uma ordem de execução.",
-			tdd_planning = "Atue como um Engenheiro de Qualidade (QA/TDD). Esboce os cenários de testes e o esqueleto de uma suíte de testes (ex: pytest) para garantir a cobertura do requisito solicitado.",
-			tech_debt = "Atue como um Tech Lead focado em refatoração. Analise o contexto, identifique débitos técnicos e crie um plano de ação seguro para refatorar o código sem quebrar a lógica de negócios."
-		}
-
-		local system_instruction = action_prompts[action_id]
-
-		-- 3. Abre a caixa de input para o usuário fornecer o contexto específico
-		ui.mount_chat_ui(function(user_prompt)
-			-- Combinamos a instrução especializada com a demanda do usuário
-			local full_prompt = string.format(
-				"INSTRUÇÃO DE PERSONA: %s\n\nREQUISITO DO USUÁRIO:\n%s",
-				system_instruction,
-				user_prompt
-			)
-
-			ui.append_to_chat("## " .. action_title .. "\n**Sua demanda:** " .. user_prompt .. "\n\n")
-			ui.append_to_chat("---\n*Iniciando análise especializada...*\n\n")
-
-			-- Utiliza o sistema de histórico e backend já consolidados no projeto
-			append_to_history("user", full_prompt)
-			M._dispatch_to_backend()
-		end)
 	end)
 end
 
